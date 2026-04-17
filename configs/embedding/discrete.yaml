@@ -1,0 +1,2 @@
+kind: discrete
+regression_loss_weight: 0.0

@@ -1,0 +1,12 @@
+n_train: 10000
+n_test: 1000
+num_workers: 4
+verify:
+  enabled: true
+  check_reduced_gb: true
+  check_ideal_equality: true
+  resample_on_failure: true
+  max_resample_attempts: 10
+singular:
+  binary: Singular
+  timeout_seconds: 30

@@ -1,0 +1,14 @@
+defaults:
+  - data: shape_position_fp7_n2
+  - model: paper
+  - embedding: discrete
+  - wandb: default
+  - _self_
+
+seed: 0
+eval:
+  ckpt_path: ???
+  check_ideal_equality: true
+  beam_width: 1
+  max_decode_len: ${model.max_tgt_len}
+  output_json: ${hydra:runtime.output_dir}/results.json

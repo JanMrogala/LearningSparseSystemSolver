@@ -1,0 +1,12 @@
+kind: shape_position
+field: Fp7
+n_vars: 2
+d_max: 5
+d_prime: 3
+s_max: 5
+term_order: lex
+coeff_range_G: [-5, 5]
+coeff_range_F: [-100, 100]
+density_sigma: 1.0
+dataset_name: shape_position_fp7_n2
+dataset_path: ${oc.env:LSSS_DATA_DIR,data}/${.dataset_name}
