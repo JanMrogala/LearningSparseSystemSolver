@@ -37,3 +37,23 @@ def support_accuracy(pred: list[Poly] | None, truth: list[Poly]) -> bool:
     pred_supp = sorted(tuple(sorted(e for _, e in p.terms)) for p in pred)
     truth_supp = sorted(tuple(sorted(e for _, e in p.terms)) for p in truth)
     return pred_supp == truth_supp
+
+
+from lsss.algebra.field import Field  # noqa: E402
+from lsss.algebra.singular import SingularSession  # noqa: E402
+
+
+def ideal_equality(
+    session: SingularSession,
+    F: list[Poly],
+    G_pred: list[Poly] | None,
+    n_vars: int,
+    field: Field,
+    order: str = "lex",
+) -> bool:
+    if G_pred is None or len(G_pred) == 0:
+        return False
+    try:
+        return session.ideal_equal(F, G_pred, n_vars=n_vars, field=field, order=order)
+    except Exception:
+        return False
