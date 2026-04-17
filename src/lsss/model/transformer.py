@@ -35,15 +35,32 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(k).view(B, Lk, self.n_heads, self.d_head).transpose(1, 2)
         v = self.v_proj(v).view(B, Lk, self.n_heads, self.d_head).transpose(1, 2)
 
+        # Build attention mask. scaled_dot_product_attention does not allow
+        # combining is_causal=True with an explicit attn_mask, so when causal
+        # masking is needed we construct the mask manually.
         attn_mask: torch.Tensor | None = None
-        if key_mask is not None:
-            attn_mask = key_mask[:, None, None, :].expand(B, self.n_heads, Lq, Lk)
+        if causal:
+            # Upper-triangular causal mask: True = keep (additive 0), False = block (-inf).
+            causal_mask = torch.ones(Lq, Lk, dtype=torch.bool, device=q.device).tril()
+            attn_mask = causal_mask[None, None, :, :].expand(B, self.n_heads, Lq, Lk)
+            if key_mask is not None:
+                # key_mask: (B, Lk) True = keep; broadcast over heads and queries.
+                key_mask_4d = key_mask[:, None, None, :].expand(B, self.n_heads, Lq, Lk)
+                attn_mask = attn_mask & key_mask_4d
+            # Convert bool mask to float additive mask for sdpa.
+            attn_mask = torch.zeros_like(attn_mask, dtype=q.dtype).masked_fill(
+                ~attn_mask, float("-inf")
+            )
+        elif key_mask is not None:
+            key_mask_4d = key_mask[:, None, None, :].expand(B, self.n_heads, Lq, Lk)
+            attn_mask = torch.zeros(B, self.n_heads, Lq, Lk, dtype=q.dtype, device=q.device)
+            attn_mask = attn_mask.masked_fill(~key_mask_4d, float("-inf"))
 
         out = F.scaled_dot_product_attention(
             q, k, v,
             attn_mask=attn_mask,
             dropout_p=self.dropout if self.training else 0.0,
-            is_causal=causal,
+            is_causal=False,
         )
         out = out.transpose(1, 2).contiguous().view(B, Lq, self.d_model)
         return self.o_proj(out)

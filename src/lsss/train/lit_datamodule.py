@@ -52,7 +52,10 @@ class GroebnerDataModule(pl.LightningDataModule):
 
     def _collate(self):
         assert self.tokenizer is not None
-        return partial(collate_fn, pad_id=self.tokenizer.vocab.pad_id)
+        max_src = getattr(self.cfg.model, "max_src_len", None)
+        max_tgt = getattr(self.cfg.model, "max_tgt_len", None)
+        return partial(collate_fn, pad_id=self.tokenizer.vocab.pad_id,
+                       max_src_len=max_src, max_tgt_len=max_tgt)
 
     def train_dataloader(self):
         return DataLoader(

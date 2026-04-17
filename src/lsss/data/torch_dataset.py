@@ -51,21 +51,32 @@ class GroebnerDataset(Dataset):
         return self._samples[idx]
 
 
-def collate_fn(samples: list[GroebnerSample], pad_id: int) -> dict[str, torch.Tensor]:
+def collate_fn(
+    samples: list[GroebnerSample],
+    pad_id: int,
+    max_src_len: int | None = None,
+    max_tgt_len: int | None = None,
+) -> dict[str, torch.Tensor]:
     src_lens = [len(s.src_tokens) for s in samples]
     tgt_lens = [len(s.tgt_tokens) for s in samples]
     src_max = max(src_lens)
     tgt_max = max(tgt_lens)
+    if max_src_len is not None:
+        src_max = min(src_max, max_src_len)
+    if max_tgt_len is not None:
+        tgt_max = min(tgt_max, max_tgt_len)
     B = len(samples)
     src = torch.full((B, src_max), pad_id, dtype=torch.long)
     tgt = torch.full((B, tgt_max), pad_id, dtype=torch.long)
     src_mask = torch.zeros((B, src_max), dtype=torch.bool)
     tgt_mask = torch.zeros((B, tgt_max), dtype=torch.bool)
     for i, s in enumerate(samples):
-        src[i, : len(s.src_tokens)] = torch.tensor(s.src_tokens, dtype=torch.long)
-        tgt[i, : len(s.tgt_tokens)] = torch.tensor(s.tgt_tokens, dtype=torch.long)
-        src_mask[i, : len(s.src_tokens)] = True
-        tgt_mask[i, : len(s.tgt_tokens)] = True
+        sl = min(len(s.src_tokens), src_max)
+        tl = min(len(s.tgt_tokens), tgt_max)
+        src[i, :sl] = torch.tensor(s.src_tokens[:sl], dtype=torch.long)
+        tgt[i, :tl] = torch.tensor(s.tgt_tokens[:tl], dtype=torch.long)
+        src_mask[i, :sl] = True
+        tgt_mask[i, :tl] = True
     return {
         "src_tokens": src,
         "tgt_tokens": tgt,
