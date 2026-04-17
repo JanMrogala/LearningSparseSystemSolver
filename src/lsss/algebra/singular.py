@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field as dc_field
 from fractions import Fraction
 from typing import Iterable
 
@@ -35,7 +35,7 @@ class SingularSession:
 
     binary: str = "Singular"
     timeout_seconds: int = 30
-    _child: pexpect.spawn | None = field(default=None, init=False, repr=False)
+    _child: pexpect.spawn | None = dc_field(default=None, init=False, repr=False)
 
     def __enter__(self):
         self._child = pexpect.spawn(
