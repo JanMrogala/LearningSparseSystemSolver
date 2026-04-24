@@ -93,6 +93,8 @@ def _worker(args):
             )
             sample_id += 1
             produced += 1
+            if produced % 100 == 0:
+                print(f"[worker {worker_id} {split}] {produced}/{n_samples}", flush=True)
     finally:
         if session_ctx is not None:
             session_ctx.__exit__(None, None, None)
