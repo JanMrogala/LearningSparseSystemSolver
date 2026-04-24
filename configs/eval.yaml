@@ -2,6 +2,7 @@ defaults:
   - data: shape_position_fp7_n2
   - model: paper
   - embedding: discrete
+  - train: mvp
   - wandb: default
   - _self_
 
