@@ -33,6 +33,14 @@ class GroebnerDataModule(pl.LightningDataModule):
         if stage in (None, "fit"):
             train_shards = sorted((dataset_path / "train").glob("shard-*.jsonl"))
             full = GroebnerDataset(train_shards, self.tokenizer, field_name)
+            subset_n = getattr(self.cfg.data, "train_subset", None)
+            if subset_n is not None and subset_n < len(full):
+                from torch.utils.data import Subset
+                indices = list(range(len(full)))
+                rng = self._gen()
+                import torch as _t
+                perm = _t.randperm(len(full), generator=rng).tolist()
+                full = Subset(full, perm[:subset_n])
             val_n = max(1, len(full) // 10)  # 10% of train for val
             train_n = len(full) - val_n
             self.train_ds, self.val_ds = random_split(
