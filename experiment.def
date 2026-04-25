@@ -1,0 +1,30 @@
+Bootstrap: docker
+From: nvcr.io/nvidia/pytorch:24.07-py3
+
+%labels
+    Description LSSS experiment container
+
+%post
+    apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        vim \
+        less \
+        singular \
+        && rm -rf /var/lib/apt/lists/*
+
+    pip install --no-cache-dir \
+        wandb \
+        pytorch-lightning>=2.2 \
+        hydra-core>=1.3 \
+        omegaconf>=2.3 \
+        pexpect>=4.9 \
+        numpy>=1.26 \
+        tqdm>=4.66 \
+        mcp
+
+%environment
+    export LC_ALL=C.UTF-8
+    export LANG=C.UTF-8
+
+%runscript
+    exec python "$@"

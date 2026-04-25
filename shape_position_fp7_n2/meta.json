@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "config": {
+    "data": {
+      "kind": "shape_position",
+      "field": "Fp7",
+      "n_vars": 2,
+      "d_max": 5,
+      "d_prime": 3,
+      "s_max": 5,
+      "term_order": "lex",
+      "coeff_range_G": [
+        -5,
+        5
+      ],
+      "coeff_range_F": [
+        -100,
+        100
+      ],
+      "density_sigma": 1.0,
+      "dataset_name": "shape_position_fp7_n2",
+      "dataset_path": "${oc.env:LSSS_DATA_DIR,data}/${.dataset_name}"
+    },
+    "model": {
+      "n_layers_encoder": 3,
+      "n_layers_decoder": 3,
+      "n_heads": 4,
+      "d_model": 256,
+      "d_ff": 1024,
+      "dropout": 0.1,
+      "max_src_len": 2000,
+      "max_tgt_len": 1000
+    },
+    "embedding": {
+      "kind": "discrete",
+      "regression_loss_weight": 0.0
+    },
+    "train": {
+      "epochs": 3,
+      "batch_size": 16,
+      "lr": 0.0001,
+      "schedule": "linear_decay",
+      "grad_clip": 1.0,
+      "precision": "bf16-mixed",
+      "devices": 1,
+      "val_check_interval": 1.0,
+      "val_decode_subset_size": 32
+    },
+    "generation": {
+      "n_train": 10000,
+      "n_test": 1000,
+      "num_workers": 16,
+      "verify": {
+        "enabled": true,
+        "check_reduced_gb": true,
+        "check_ideal_equality": true,
+        "resample_on_failure": true,
+        "max_resample_attempts": 10
+      },
+      "singular": {
+        "binary": "Singular",
+        "timeout_seconds": 30
+      }
+    },
+    "wandb": {
+      "project": "lsss-groebner",
+      "entity": null,
+      "name": null,
+      "tags": [],
+      "mode": "online",
+      "run_id": null
+    },
+    "seed": 0,
+    "output_dir": "${hydra:runtime.output_dir}"
+  }
+}

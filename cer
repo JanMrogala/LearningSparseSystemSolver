@@ -1,0 +1,270 @@
+#!/usr/bin/env python3
+"""CER CLI client.
+
+Workspace commands (create/list/reset) run locally — just git operations.
+Cluster commands (submit/status/cancel/results/list) go through the MCP server.
+"""
+
+import asyncio
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+MCP_URL = "http://localhost:8000/mcp"
+MAX_WORKSPACES = 10
+
+USAGE = """\
+Usage: cer <command> [args]
+
+Workspace (local):
+  workspace create <name>             Create a workspace (worktree + branch)
+  workspace list                      List all workspaces
+  workspace reset <name>              Delete and recreate from latest main
+
+Cluster (via MCP server):
+  submit <commit_hash>                Submit experiment to cluster
+  status <job_id>                     Check SLURM job status
+  cancel <job_id>                     Cancel a running job
+  results <job_id> [--history] [--key KEY ...]  Query W&B metrics
+  list                                List all experiments
+"""
+
+
+def _repo_root() -> Path:
+    """Find the repo root from this script's location."""
+    return Path(__file__).resolve().parent
+
+
+# --- Workspace commands (local, no MCP) ---
+
+def cmd_workspace_create(name: str):
+    repo = _repo_root()
+    workspaces_dir = repo / "workspaces"
+    workspace_path = workspaces_dir / name
+
+    if workspace_path.exists():
+        print(json.dumps({
+            "status": "exists",
+            "path": str(workspace_path),
+            "branch": name,
+        }, indent=2))
+        return
+
+    existing = list(workspaces_dir.glob("*")) if workspaces_dir.exists() else []
+    if len(existing) >= MAX_WORKSPACES:
+        print(
+            f"Error: Maximum workspaces ({MAX_WORKSPACES}) reached. "
+            f"Existing: {[p.name for p in existing]}. "
+            f"Use 'cer workspace reset <name>' to free one."
+        )
+        sys.exit(1)
+
+    workspaces_dir.mkdir(exist_ok=True)
+
+    result = subprocess.run(
+        ["git", "worktree", "add", "-b", name, str(workspace_path), "main"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        print(f"Error: {result.stderr}")
+        sys.exit(1)
+
+    print(json.dumps({
+        "status": "created",
+        "path": str(workspace_path),
+        "branch": name,
+    }, indent=2))
+
+
+def cmd_workspace_list():
+    workspaces_dir = _repo_root() / "workspaces"
+    if not workspaces_dir.exists():
+        print("No workspaces found.")
+        return
+
+    workspaces = []
+    for p in sorted(workspaces_dir.iterdir()):
+        if not p.is_dir():
+            continue
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"], cwd=p, text=True,
+            ).strip()
+            branch = subprocess.check_output(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=p, text=True,
+            ).strip()
+        except subprocess.CalledProcessError:
+            commit = "unknown"
+            branch = "unknown"
+        workspaces.append({"name": p.name, "path": str(p), "branch": branch, "commit": commit})
+
+    if not workspaces:
+        print("No workspaces found.")
+    else:
+        print(json.dumps(workspaces, indent=2))
+
+
+def cmd_workspace_reset(name: str):
+    repo = _repo_root()
+    workspace_path = repo / "workspaces" / name
+
+    # 1. Remove local worktree
+    if workspace_path.exists():
+        result = subprocess.run(
+            ["git", "worktree", "remove", "--force", str(workspace_path)],
+            cwd=repo, capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            shutil.rmtree(workspace_path, ignore_errors=True)
+            subprocess.run(["git", "worktree", "prune"], cwd=repo, capture_output=True)
+
+    # 2. Delete local branch
+    subprocess.run(
+        ["git", "branch", "-D", name],
+        cwd=repo, capture_output=True, text=True,
+    )
+
+    # 3. Delete remote branch
+    subprocess.run(
+        ["git", "push", "origin", "--delete", name],
+        cwd=repo, capture_output=True, text=True,
+    )
+
+    # 4. Fetch latest main and recreate
+    subprocess.run(
+        ["git", "fetch", "origin", "main"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    result = subprocess.run(
+        ["git", "worktree", "add", "-b", name, str(workspace_path), "origin/main"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"Error recreating: {result.stderr}")
+        sys.exit(1)
+
+    print(json.dumps({
+        "status": "reset",
+        "path": str(workspace_path),
+        "branch": name,
+    }, indent=2))
+
+
+# --- Cluster commands (via MCP) ---
+
+async def call_tool(name: str, args: dict, timeout: float = 30, sse_read_timeout: float = 600) -> str:
+    from mcp.client.session import ClientSession
+    from mcp.client.streamable_http import streamablehttp_client
+
+    async with streamablehttp_client(MCP_URL, timeout=timeout, sse_read_timeout=sse_read_timeout) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            result = await session.call_tool(name, args)
+            return result.content[0].text
+
+
+def main():
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help"):
+        print(USAGE)
+        sys.exit(0)
+
+    cmd = argv[0]
+
+    # Workspace commands — local, no MCP
+    if cmd == "workspace":
+        if len(argv) < 2:
+            print("Usage: cer workspace <create|list|reset> [name]")
+            sys.exit(1)
+        subcmd = argv[1]
+        if subcmd == "create":
+            if len(argv) < 3:
+                print("Usage: cer workspace create <name>")
+                sys.exit(1)
+            cmd_workspace_create(argv[2])
+        elif subcmd == "list":
+            cmd_workspace_list()
+        elif subcmd == "reset":
+            if len(argv) < 3:
+                print("Usage: cer workspace reset <name>")
+                sys.exit(1)
+            cmd_workspace_reset(argv[2])
+        else:
+            print(f"Unknown workspace command: {subcmd}")
+            sys.exit(1)
+        return
+
+    # Cluster commands — via MCP server
+    if cmd == "submit":
+        if len(argv) < 2:
+            print("Usage: cer submit <commit_hash>")
+            sys.exit(1)
+        commit = argv[1]
+
+        # Auto-push: ensure the commit is on the remote before submitting
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True,
+        ).strip()
+        print(f"Pushing {branch}...")
+        push = subprocess.run(
+            ["git", "push", "origin", branch],
+            capture_output=True, text=True,
+        )
+        if push.returncode != 0:
+            print(f"Push failed: {push.stderr}")
+            sys.exit(1)
+
+        result = asyncio.run(call_tool("submit", {"commit_hash": commit}))
+
+    elif cmd == "status":
+        if len(argv) < 2:
+            print("Usage: cer status <job_id>")
+            sys.exit(1)
+        result = asyncio.run(call_tool("status", {"job_id": argv[1]}))
+
+    elif cmd == "cancel":
+        if len(argv) < 2:
+            print("Usage: cer cancel <job_id>")
+            sys.exit(1)
+        result = asyncio.run(call_tool("cancel", {"job_id": argv[1]}))
+
+    elif cmd == "results":
+        if len(argv) < 2:
+            print("Usage: cer results <job_id> [--history] [--key KEY ...]")
+            sys.exit(1)
+        args = {"job_id": argv[1]}
+        rest = argv[2:]
+        if "--history" in rest:
+            args["history"] = True
+            rest.remove("--history")
+        keys = []
+        while "--key" in rest:
+            idx = rest.index("--key")
+            if idx + 1 < len(rest):
+                keys.append(rest[idx + 1])
+                rest.pop(idx)
+                rest.pop(idx)
+            else:
+                rest.pop(idx)
+        if keys:
+            args["keys"] = keys
+        result = asyncio.run(call_tool("results", args))
+
+    elif cmd == "list":
+        result = asyncio.run(call_tool("list_experiments", {}))
+
+    else:
+        print(f"Unknown command: {cmd}")
+        print(USAGE)
+        sys.exit(1)
+
+    print(result)
+
+
+if __name__ == "__main__":
+    main()
