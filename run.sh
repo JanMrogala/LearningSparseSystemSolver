@@ -13,6 +13,10 @@ set -euo pipefail
 # Data lives at the repo root; config resolves via LSSS_DATA_DIR/dataset_name
 export LSSS_DATA_DIR=$(pwd)
 
-pip install -q -e . 2>/dev/null || true
+# Make lsss importable without requiring hatchling in the container
+export PYTHONPATH="$(pwd)/src:${PYTHONPATH:-}"
+
+# Install any deps the container might be missing
+pip install -q pexpect pytorch-lightning hydra-core omegaconf wandb
 
 python scripts/train.py
